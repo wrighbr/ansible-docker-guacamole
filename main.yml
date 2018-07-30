@@ -1,0 +1,79 @@
+---
+
+- name: Configure Guacamole
+  hosts: all
+  #connection: local
+  become: yes
+  become_user: root
+
+  vars:
+
+  tasks:
+    - name: Ensure python pip is installed
+      apt:
+        name: python-pip
+        state: latest
+
+    - name: Ensure docker-py is installed
+      pip:
+        name: docker-py
+        state: present
+  
+    - name: Ensure guacamole folder is created
+      file:
+        path: /opt/guacamole/init
+        state: directory
+    
+    - name: Setup guacamole db
+      template:
+        src: files/initdb.sql
+        dest: /opt/guacamole/init/initdb.sql
+
+    - name: created guac network
+      docker_network:
+        name: guac
+
+    - name: Ensure postgres docker configured
+      docker_container:
+        name: postgres
+        image: postgres
+        restart_policy: always
+        volumes:
+          - /opt/guacamole/init:/docker-entrypoint-initdb.d
+          - /opt/guacamole/data:/var/lib/postgres/data
+        env:
+          POSTGRES_USER: guacamole_user
+          POSTGRES_PASSWORD: some_password
+          POSTGRES_DB: guacamole_db      
+        networks:
+          - name: guac
+    
+    - name: Ensure guacd docker container is configured
+      docker_container:
+        name: guacd
+        image: guacamole/guacd
+        restart_policy: always
+        networks:
+          - name: guac
+
+    - name: Ensure guac docker container is configured
+      docker_container:
+        name: guac
+        image: guacamole/guacamole
+        restart_policy: always
+        ports:
+          - "8080:8080"
+        env:
+          POSTGRES_HOSTNAME: postgres
+          POSTGRES_DATABASE: guacamole_db
+          POSTGRES_USER: guacamole_user
+          POSTGRES_PASSWORD: some_password
+          GUACD_HOSTNAME: guacd
+          GUACD_PORT: 4822
+        links:
+          - "postgres:postgres"
+        networks:
+          - name: guac
+        #depends_on:
+        #  - postgres
+        #  - guacd
